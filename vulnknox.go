@@ -261,7 +261,7 @@ func processURLs(urls []string, httpMethod, postData, headers string, afb, check
 }
 
 
-func processURL(targetURL, httpMethod, postData, headers string, afb, checkPoC, flashMode bool, timeout, retries, retryInterval, skipBlocked int, proxyURL string) KnoxssResponse {
+func processURL(targetURL, httpMethod, postData, headers string, afb, checkPoC, flashMode bool, timeout, retries, retryInterval, skipBlocked int, proxyURL string) []KnoxssResponse {
     // Adjusted parsing to handle invalid URLs
     parsedURL, err := url.ParseRequestURI(targetURL)
     if err != nil {
@@ -269,7 +269,7 @@ func processURL(targetURL, httpMethod, postData, headers string, afb, checkPoC, 
         escapedURL := escapeURL(targetURL)
         parsedURL, err = url.ParseRequestURI(escapedURL)
         if err != nil {
-            return KnoxssResponse{Error: fmt.Sprintf("Invalid URL: %v", err)}
+            return []KnoxssResponse{{Error: fmt.Sprintf("Invalid URL: %v", err)}}
         }
         targetURL = escapedURL
     }
@@ -284,27 +284,20 @@ func processURL(targetURL, httpMethod, postData, headers string, afb, checkPoC, 
     var results []KnoxssResponse
 
     for _, method := range methods {
-        // Move the skipBlocked logic here
         domain := fmt.Sprintf("(%s) %s://%s", method, parsedURL.Scheme, parsedURL.Host)
         if skipBlocked > 0 && blockedDomains[domain] > skipBlocked {
             mutex.Lock()
             skipCount++
             mutex.Unlock()
-            return KnoxssResponse{Error: "Domain skipped due to multiple 403 responses"}
+            results = append(results, KnoxssResponse{Error: "Domain skipped due to multiple 403 responses"})
+            continue
         }
 
         result := performRequest(targetURL, method, postData, headers, afb, checkPoC, flashMode, timeout, retries, retryInterval, skipBlocked, proxyURL)
         results = append(results, result)
     }
 
-    // Combine results
-    for _, res := range results {
-        if res.XSS == "true" {
-            return res
-        }
-    }
-
-    return results[0]
+    return results
 }
 
 func escapeURL(rawURL string) string {
