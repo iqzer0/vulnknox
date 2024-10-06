@@ -148,6 +148,8 @@ func main() {
 	for _, result := range results {
 		outputResult(result, successOnly, outputAll)
 	}
+	// Update the latest APICall balance
+	latestAPICallBalance = getLatestAPICallBalance(results)
 
 	printSummary()
 }
@@ -270,8 +272,6 @@ func processURLs(urls []string, httpMethod, postData, headers string, afb, check
     return results
 }
 
-
-
 func processURL(targetURL, httpMethod, postData, headers string, afb, checkPoC, flashMode bool, timeout, retries, retryInterval, skipBlocked int, proxyURL string) []KnoxssResponse {
     // Adjusted parsing to handle invalid URLs
     parsedURL, err := url.ParseRequestURI(targetURL)
@@ -383,12 +383,6 @@ func performRequest(targetURL, method, postData, headers string, afb, checkPoC, 
         body, _ := ioutil.ReadAll(resp.Body)
         json.Unmarshal(body, &result)
 
-        if result.APICall != "" {
-            mutex.Lock()
-            latestAPICallBalance = result.APICall
-            mutex.Unlock()
-        }
-
         if result.Error == "" || result.Error == "none" {
             break
         }
@@ -406,14 +400,28 @@ func performRequest(targetURL, method, postData, headers string, afb, checkPoC, 
     return result
 }
 
-func outputResult(result KnoxssResponse, successOnly, outputAll bool) {
-	mutex.Lock()
-	requestCount++
-	if result.APICall != "" {
-		latestAPICallBalance = result.APICall
-	}
-	mutex.Unlock()
+func getLatestAPICallBalance(results []KnoxssResponse) string {
+    var latestTime time.Time
+    var latestBalance string
+    for _, result := range results {
+        if result.Timestamp != "" && result.APICall != "" {
+            resultTime, err := time.Parse(time.RFC1123Z, result.Timestamp)
+            if err == nil {
+                if resultTime.After(latestTime) {
+                    latestTime = resultTime
+                    latestBalance = result.APICall
+                }
+            }
+        }
+    }
+    return latestBalance
+}
 
+
+func outputResult(result KnoxssResponse, successOnly, outputAll bool) {
+    mutex.Lock()
+    requestCount++
+    mutex.Unlock()	
 	if result.XSS == "true" {
 		mutex.Lock()
 		successCount++
