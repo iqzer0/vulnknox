@@ -24,7 +24,7 @@ Before using the tool, you need to set up your configuration:
 
 API Key
 
-Obtain your KNOXSS API key from [knoxss.me]((https://knoxss.me).
+Obtain your KNOXSS API key from [knoxss.me](https://knoxss.me).
 
 On the first run, a default configuration file will be created at:
 
