@@ -50,15 +50,17 @@ var (
 
 	mutex sync.Mutex
 	bannerPrinted bool
+
+	verbose     bool
+	skipBlocked int
 )
 
 func main() {
 	var (
 		apiKey, inputURL, inputFile, outputFile, httpMethod, postData, headers, discordWebhook, proxyURL string
-		outputOverwrite, outputAll, afb, checkPoC, flashMode, successOnly, verbose, showVersion, suppressBanner bool
-		processes, timeout, retries, retryInterval, skipBlocked int
+		outputOverwrite, outputAll, afb, checkPoC, flashMode, successOnly, verboseFlag, showVersion, suppressBanner bool
+		processes, timeout, retries, retryInterval, skipBlockedFlag int
 	)
-
 	flag.StringVar(&apiKey, "api-key", "", "KNOXSS API Key (overrides config file)")
 	flag.StringVar(&inputURL, "u", "", "Input URL to send to KNOXSS API")
 	flag.StringVar(&inputFile, "i", "", "Input file containing URLs to send to KNOXSS API")
@@ -77,9 +79,9 @@ func main() {
 	flag.StringVar(&discordWebhook, "dw", "", "Discord Webhook URL (overrides config file)")
 	flag.IntVar(&retries, "r", 3, "Number of retries for failed requests")
 	flag.IntVar(&retryInterval, "ri", 30, "Interval between retries in seconds")
-	flag.IntVar(&skipBlocked, "sb", 0, "Skip domains after this many 403 responses")
+	flag.IntVar(&skipBlockedFlag, "sb", 0, "Skip domains after this many 403 responses")
 	flag.StringVar(&proxyURL, "proxy", "", "Proxy URL (e.g., http://127.0.0.1:8080)")
-	flag.BoolVar(&verbose, "v", false, "Verbose output")
+	flag.BoolVar(&verboseFlag, "v", false, "Verbose output")
 	flag.BoolVar(&showVersion, "version", false, "Show version number")
 	flag.BoolVar(&suppressBanner, "no-banner", false, "Suppress the banner")
 
@@ -109,6 +111,9 @@ func main() {
 	}
 
 	flag.Parse()
+
+	verbose = verboseFlag
+	skipBlocked = skipBlockedFlag
 
 	if showVersion {
 		fmt.Printf("VulnKnox version %s\n", version)
@@ -143,7 +148,7 @@ func main() {
 		defer outFile.Close()
 	}
 
-	results := processURLs(urls, httpMethod, postData, headers, afb, checkPoC, flashMode, processes, timeout, retries, retryInterval, skipBlocked, proxyURL)
+	results := processURLs(urls, httpMethod, postData, headers, afb, checkPoC, flashMode, processes, timeout, retries, retryInterval, proxyURL)
 
 	for _, result := range results {
 		outputResult(result, successOnly, outputAll)
@@ -244,184 +249,213 @@ func getInputURLs(inputURL, inputFile string) []string {
 }
 
 func processURLs(urls []string, httpMethod, postData, headers string, afb, checkPoC, flashMode bool,
-    processes, timeout, retries, retryInterval, skipBlocked int, proxyURL string) []KnoxssResponse {
+	processes, timeout, retries, retryInterval int, proxyURL string) []KnoxssResponse {
 
-    var results []KnoxssResponse
-    sem := make(chan bool, processes)
-    var wg sync.WaitGroup
-    var mutex sync.Mutex
+	var results []KnoxssResponse
+	sem := make(chan bool, processes)
+	var wg sync.WaitGroup
+	var mutex sync.Mutex
 
-    for _, u := range urls {
-        wg.Add(1)
-        sem <- true
-        go func(u string) {
-            defer wg.Done()
-            defer func() { <-sem }()
+	for _, u := range urls {
+		wg.Add(1)
+		sem <- true
+		go func(u string) {
+			defer wg.Done()
+			defer func() { <-sem }()
 
-            // Now processURL returns []KnoxssResponse
-            resList := processURL(u, httpMethod, postData, headers, afb, checkPoC, flashMode,
-                timeout, retries, retryInterval, skipBlocked, proxyURL)
+			resList := processURL(u, httpMethod, postData, headers, afb, checkPoC, flashMode,
+				timeout, retries, retryInterval, proxyURL)
 
-            mutex.Lock()
-            results = append(results, resList...)
-            mutex.Unlock()
-        }(u)
-    }
+			mutex.Lock()
+			results = append(results, resList...)
+			mutex.Unlock()
+		}(u)
+	}
 
-    wg.Wait()
-    return results
+	wg.Wait()
+	return results
 }
 
-func processURL(targetURL, httpMethod, postData, headers string, afb, checkPoC, flashMode bool, timeout, retries, retryInterval, skipBlocked int, proxyURL string) []KnoxssResponse {
-    // Adjusted parsing to handle invalid URLs
-    parsedURL, err := url.ParseRequestURI(targetURL)
-    if err != nil {
-        // Attempt to escape the URL and parse again
-        escapedURL := escapeURL(targetURL)
-        parsedURL, err = url.ParseRequestURI(escapedURL)
-        if err != nil {
-            return []KnoxssResponse{{Error: fmt.Sprintf("Invalid URL: %v", err)}}
-        }
-        targetURL = escapedURL
-    }
+func processURL(targetURL, httpMethod, postData, headers string, afb, checkPoC, flashMode bool, timeout, retries, retryInterval int, proxyURL string) []KnoxssResponse {
+	parsedURL, err := url.ParseRequestURI(targetURL)
+	if err != nil {
+		escapedURL := escapeURL(targetURL)
+		parsedURL, err = url.ParseRequestURI(escapedURL)
+		if err != nil {
+			return []KnoxssResponse{{Error: fmt.Sprintf("Invalid URL: %v", err)}}
+		}
+		targetURL = escapedURL
+	}
 
-    methods := []string{}
-    if httpMethod == "BOTH" {
-        methods = []string{"GET", "POST"}
-    } else {
-        methods = []string{httpMethod}
-    }
+	methods := []string{}
+	if httpMethod == "BOTH" {
+		methods = []string{"GET", "POST"}
+	} else {
+		methods = []string{httpMethod}
+	}
 
-    var results []KnoxssResponse
+	var results []KnoxssResponse
 
-    for _, method := range methods {
-        domain := fmt.Sprintf("(%s) %s://%s", method, parsedURL.Scheme, parsedURL.Host)
-        if skipBlocked > 0 && blockedDomains[domain] > skipBlocked {
-            mutex.Lock()
-            skipCount++
-            mutex.Unlock()
-            results = append(results, KnoxssResponse{Error: "Domain skipped due to multiple 403 responses"})
-            continue
-        }
+	for _, method := range methods {
+		domain := fmt.Sprintf("(%s) %s://%s", method, parsedURL.Scheme, parsedURL.Host)
+		if skipBlocked > 0 && blockedDomains[domain] >= skipBlocked {
+			if verbose {
+				fmt.Printf("[VERBOSE] Skipping domain %s after %d 403 responses\n", domain, blockedDomains[domain])
+			}
+			mutex.Lock()
+			skipCount++
+			mutex.Unlock()
+			results = append(results, KnoxssResponse{Error: fmt.Sprintf("Domain %s skipped due to multiple 403 responses", domain)})
+			continue
+		}
 
-        result := performRequest(targetURL, method, postData, headers, afb, checkPoC, flashMode, timeout, retries, retryInterval, skipBlocked, proxyURL)
-        results = append(results, result)
-    }
+		result := performRequest(targetURL, method, postData, headers, afb, checkPoC, flashMode,
+			timeout, retries, retryInterval, proxyURL, domain)
+		results = append(results, result)
+	}
 
-    return results
+	return results
 }
 
 func escapeURL(rawURL string) string {
-    // Replace spaces and other characters with their URL-encoded equivalents
-    return url.QueryEscape(rawURL)
+	return url.QueryEscape(rawURL)
 }
 
-func performRequest(targetURL, method, postData, headers string, afb, checkPoC, flashMode bool, timeout, retries, retryInterval, skipBlocked int, proxyURL string) KnoxssResponse {
-    // Remove the URL parsing from here since it's already done in processURL
+func performRequest(targetURL, method, postData, headers string, afb, checkPoC, flashMode bool, timeout, retries, retryInterval int, proxyURL, domain string) KnoxssResponse {
+	data := url.Values{}
 
-    data := url.Values{}
+	encodedTargetURL := encodeParams(targetURL)
+	encodedPostData := encodeParams(postData)
 
-    // Encode parameters to replace '&' with '%26'
-    encodedTargetURL := encodeParams(targetURL)
-    encodedPostData := encodeParams(postData)
+	if method == "GET" {
+		data.Set("target", encodedTargetURL)
+	} else if method == "POST" {
+		data.Set("target", encodedTargetURL)
+		data.Set("post", encodedPostData)
+	}
 
-    if method == "GET" {
-        data.Set("target", encodedTargetURL)
-    } else if method == "POST" {
-        data.Set("target", encodedTargetURL)
-        data.Set("post", encodedPostData)
-    }
+	if afb {
+		data.Set("afb", "1")
+	}
+	if checkPoC {
+		data.Set("checkpoc", "1")
+	}
+	if headers != "" {
+		authValue := strings.ReplaceAll(headers, ",", "%0D%0A")
+		authValue = encodeParams(authValue)
+		data.Set("auth", authValue)
+		if verbose {
+			fmt.Printf("[VERBOSE] Auth parameter set to: %s\n", authValue)
+		}
+	}
 
-    if afb {
-        data.Set("afb", "1")
-    }
-    if checkPoC {
-        data.Set("checkpoc", "1")
-    }
-    if headers != "" {
-        data.Set("auth", strings.ReplaceAll(headers, ",", "\r\n"))
-    }
-
-    // Handle Flash Mode
-    if flashMode {
-        if method == "GET" {
-            data.Set("target", insertXSSMark(data.Get("target")))
-        } else if method == "POST" {
-            data.Set("post", insertXSSMark(data.Get("post")))
-        }
-    }
+	if flashMode {
+		if method == "GET" {
+			data.Set("target", insertXSSMark(data.Get("target")))
+		} else if method == "POST" {
+			data.Set("post", insertXSSMark(data.Get("post")))
+		}
+	}
 
 	transport := &http.Transport{
-	    TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
 	}
-    if proxyURL != "" {
-        proxyURLParsed, _ := url.Parse(proxyURL)
-        transport.Proxy = http.ProxyURL(proxyURLParsed)
-    }
+	if proxyURL != "" {
+		proxyURLParsed, _ := url.Parse(proxyURL)
+		transport.Proxy = http.ProxyURL(proxyURLParsed)
+	}
 
-    client := &http.Client{Timeout: time.Duration(timeout) * time.Second, Transport: transport}
+	client := &http.Client{Timeout: time.Duration(timeout) * time.Second, Transport: transport}
 
-    var result KnoxssResponse
-    for attempt := 0; attempt <= retries; attempt++ {
-        req, err := http.NewRequest("POST", config.APIURL, strings.NewReader(data.Encode()))
-        if err != nil {
-            result.Error = fmt.Sprintf("Error creating request: %v", err)
-            time.Sleep(time.Duration(retryInterval) * time.Second)
-            continue
-        }
-        req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-        req.Header.Set("X-API-KEY", config.APIKey)
+	var result KnoxssResponse
+	for attempt := 0; attempt <= retries; attempt++ {
+		if verbose {
+			fmt.Printf("[VERBOSE] Attempt %d for URL: %s\n", attempt+1, targetURL)
+		}
+		req, err := http.NewRequest("POST", config.APIURL, strings.NewReader(data.Encode()))
+		if err != nil {
+			result.Error = fmt.Sprintf("Error creating request: %v", err)
+			if verbose {
+				fmt.Printf("[VERBOSE] %s\n", result.Error)
+			}
+			time.Sleep(time.Duration(retryInterval) * time.Second)
+			continue
+		}
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		req.Header.Set("X-API-KEY", config.APIKey)
 
-        resp, err := client.Do(req)
-        if err != nil {
-            result.Error = fmt.Sprintf("Error sending request: %v", err)
-            time.Sleep(time.Duration(retryInterval) * time.Second)
-            continue
-        }
-        defer resp.Body.Close()
+		if verbose {
+			fmt.Printf("[VERBOSE] Sending request to KNOXSS API for URL: %s\n", targetURL)
+			fmt.Printf("[VERBOSE] Method: %s\n", method)
+			if method == "POST" {
+				fmt.Printf("[VERBOSE] POST data: %s\n", postData)
+			}
+			if headers != "" {
+				fmt.Printf("[VERBOSE] Custom headers: %s\n", headers)
+			}
+			fmt.Printf("[VERBOSE] Data sent to API: %s\n", data.Encode())
+		}
 
-        body, _ := ioutil.ReadAll(resp.Body)
-        json.Unmarshal(body, &result)
+		resp, err := client.Do(req)
+		if err != nil {
+			result.Error = fmt.Sprintf("Error sending request: %v", err)
+			if verbose {
+				fmt.Printf("[VERBOSE] %s\n", result.Error)
+			}
+			time.Sleep(time.Duration(retryInterval) * time.Second)
+			continue
+		}
+		defer resp.Body.Close()
 
-        if result.Error == "" || result.Error == "none" {
-            break
-        }
+		body, _ := ioutil.ReadAll(resp.Body)
+		json.Unmarshal(body, &result)
 
-        if resp.StatusCode == 403 {
-            // Already handle blocked domains in processURL, so this can be removed
-            // mutex.Lock()
-            // blockedDomains[domain]++
-            // mutex.Unlock()
-        }
+		if verbose {
+			fmt.Printf("[VERBOSE] Received response from KNOXSS API for URL: %s\n", targetURL)
+			fmt.Printf("[VERBOSE] Status code: %d\n", resp.StatusCode)
+			fmt.Printf("[VERBOSE] Response body: %s\n", string(body))
+		}
 
-        time.Sleep(time.Duration(retryInterval) * time.Second)
-    }
+		if resp.StatusCode == 403 {
+			mutex.Lock()
+			blockedDomains[domain]++
+			mutex.Unlock()
+			if verbose {
+				fmt.Printf("[VERBOSE] Received 403 from %s. Incremented blocked count to %d\n", domain, blockedDomains[domain])
+			}
+		}
 
-    return result
+		if result.Error == "" || result.Error == "none" {
+			break
+		}
+
+		time.Sleep(time.Duration(retryInterval) * time.Second)
+	}
+
+	return result
 }
 
 func getLatestAPICallBalance(results []KnoxssResponse) string {
-    var latestTime time.Time
-    var latestBalance string
-    for _, result := range results {
-        if result.Timestamp != "" && result.APICall != "" {
-            resultTime, err := time.Parse(time.RFC1123Z, result.Timestamp)
-            if err == nil {
-                if resultTime.After(latestTime) {
-                    latestTime = resultTime
-                    latestBalance = result.APICall
-                }
-            }
-        }
-    }
-    return latestBalance
+	var latestTime time.Time
+	var latestBalance string
+	for _, result := range results {
+		if result.Timestamp != "" && result.APICall != "" {
+			resultTime, err := time.Parse(time.RFC1123Z, result.Timestamp)
+			if err == nil {
+				if resultTime.After(latestTime) {
+					latestTime = resultTime
+					latestBalance = result.APICall
+				}
+			}
+		}
+	}
+	return latestBalance
 }
 
-
 func outputResult(result KnoxssResponse, successOnly, outputAll bool) {
-    mutex.Lock()
-    requestCount++
-    mutex.Unlock()	
+	mutex.Lock()
+	requestCount++
+	mutex.Unlock()
 	if result.XSS == "true" {
 		mutex.Lock()
 		successCount++
@@ -510,15 +544,23 @@ func encodeParams(input string) string {
 	return strings.ReplaceAll(input, "&", "%26")
 }
 
+func encodeTargetURL(targetURL string) string {
+	idx := strings.Index(targetURL, "?")
+	if idx == -1 {
+		return targetURL
+	}
+	baseURL := targetURL[:idx+1]
+	queryString := targetURL[idx+1:]
+	encodedQueryString := strings.ReplaceAll(queryString, "&", "%26")
+	return baseURL + encodedQueryString
+}
+
 func insertXSSMark(input string) string {
-    if strings.Contains(input, "[XSS]") {
-        // [XSS] mark already present; do not insert again
-        return input
-    }
-    // Insert [XSS] mark after the first '='
-    if strings.Contains(input, "=") {
-        return strings.Replace(input, "=", "=[XSS]", 1)
-    }
-    // If there's no '=', append [XSS] at the end
-    return input + "[XSS]"
+	if strings.Contains(input, "[XSS]") {
+		return input
+	}
+	if strings.Contains(input, "=") {
+		return strings.Replace(input, "=", "=[XSS]", 1)
+	}
+	return input + "[XSS]"
 }
