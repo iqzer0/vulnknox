@@ -1,5 +1,5 @@
 <p align="center"><img width="200" height="200" src="https://github.com/user-attachments/assets/cfc17d96-1394-4a66-9d14-7152c60921c0" alt="VulnKnoX"></p>
-<h1 align="center">VulKnoX</h1>
+<h1 align="center">VulnKnoX</h1>
 
 VulnKnox is a powerful command-line tool written in Go that interfaces with the [KNOXSS API](https://knoxss.me/?page_id=2729). It automates the process of testing URLs for Cross-Site Scripting (XSS) vulnerabilities using the advanced capabilities of the KNOXSS engine.
 
