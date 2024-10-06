@@ -241,25 +241,28 @@ func getInputURLs(inputURL, inputFile string) []string {
 	return nil
 }
 
-func processURLs(urls []string, httpMethod, postData, headers string, afb, checkPoC, flashMode bool, processes, timeout, retries, retryInterval, skipBlocked int, proxyURL string) []KnoxssResponse {
-	results := make([]KnoxssResponse, len(urls))
-	sem := make(chan bool, processes)
-	var wg sync.WaitGroup
+func processURLs(...) []KnoxssResponse {
+    var results []KnoxssResponse
+    sem := make(chan bool, processes)
+    var wg sync.WaitGroup
+    var mutex sync.Mutex
 
-	for i, u := range urls {
-		wg.Add(1)
-		sem <- true
-		go func(i int, u string) {
-			defer wg.Done()
-			defer func() { <-sem }()
-			results[i] = processURL(u, httpMethod, postData, headers, afb, checkPoC, flashMode, timeout, retries, retryInterval, skipBlocked, proxyURL)
-		}(i, u)
-	}
+    for _, u := range urls {
+        wg.Add(1)
+        sem <- true
+        go func(u string) {
+            defer wg.Done()
+            defer func() { <-sem }()
+            res := processURL(u, httpMethod, ...)
+            mutex.Lock()
+            results = append(results, res...)
+            mutex.Unlock()
+        }(u)
+    }
 
-	wg.Wait()
-	return results
+    wg.Wait()
+    return results
 }
-
 
 func processURL(targetURL, httpMethod, postData, headers string, afb, checkPoC, flashMode bool, timeout, retries, retryInterval, skipBlocked int, proxyURL string) []KnoxssResponse {
     // Adjusted parsing to handle invalid URLs
