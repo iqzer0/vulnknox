@@ -108,6 +108,8 @@ vulnknox -u "https://example.com/page?param=value" -no-banner -s
 [ XSS! ]: Indicates a successful XSS payload was found.
 [ SAFE ]: No XSS vulnerability was found in the target.
 [ ERR! ]: An error occurred during the request.
+[ SKIP ]: The domain or URL was skipped due to multiple failed attempts (e.g., after receiving too many 403 Forbidden responses as specified by the -sb option).
+[BALANCE]: Indicates your current API usage with KNOXSS, showing how many API calls you've used out of your total allowance.
 ```
 The tool also provides a summary at the end of execution, including the number of requests made, successful XSS findings, safe responses, errors, and any skipped domains.
 
