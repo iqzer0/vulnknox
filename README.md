@@ -2,6 +2,8 @@
 VulnKnox is a powerful command-line tool written in Go that interfaces with the [KNOXSS API](https://knoxss.me/?page_id=2729). It automates the process of testing URLs for Cross-Site Scripting (XSS) vulnerabilities using the advanced capabilities of the KNOXSS engine.
 
 ## Features
+- Supports pipe input for passing file lists and echoing URLs for testing
+- Configurable retries and timeouts
 - Supports GET, POST, and BOTH HTTP methods
 - Advanced Filter Bypass (AFB) feature
 - Flash Mode for quick XSS polyglot testing
@@ -11,7 +13,6 @@ VulnKnox is a powerful command-line tool written in Go that interfaces with the 
 - Proxy support
 - Discord webhook integration for notifications
 - Detailed output with color-coded results
-- Configurable retries and timeouts
 
 ### Installation
 
